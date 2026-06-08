@@ -54,23 +54,29 @@ class Settings(BaseSettings):
     redis_password: str = ""
     conversation_ttl_seconds: int = 86400
 
-    # ---------------- LLM endpoints ----------------
-    llm_base_url: str = "http://localhost:8001/v1"
-    llm_api_key: str = "not-needed-for-local"
-    intent_model: str = "qwen3-8b"
-    rewrite_model: str = "qwen3-8b"
-    sql_validation_model: str = "qwen3-14b"
-    sql_gen_model: str = "arctic-text2sql"
-    chat_model: str = "qwen3-14b"
-    answer_model: str = "qwen3-14b"
+    # ---------------- LLM endpoints (Ollama, OpenAI-compatible) ----------------
+    # Ollama exposes the OpenAI API at http://localhost:11434/v1
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_api_key: str = "ollama"
+    # Ollama model tags (pull these with `ollama pull <name>`)
+    intent_model: str = "qwen3:8b"
+    rewrite_model: str = "qwen3:8b"
+    sql_validation_model: str = "qwen3:14b"
+    sql_gen_model: str = "deepseek-r1:32b"   # or an arctic-text2sql GGUF tag
+    chat_model: str = "qwen3:14b"
+    answer_model: str = "qwen3:14b"
 
-    embed_base_url: str = "http://localhost:8002/v1"
-    embed_api_key: str = "not-needed-for-local"
+    embed_base_url: str = "http://localhost:11434/v1"
+    embed_api_key: str = "ollama"
     embed_model: str = "bge-m3"
 
-    rerank_base_url: str = "http://localhost:8003"
-    rerank_api_key: str = "not-needed-for-local"
-    rerank_model: str = "qwen3-reranker-8b"
+    # Reranking. Ollama has no native rerank API, so the default mode is "llm"
+    # (a single listwise pass with rerank_model). Set rerank_mode="http" to use
+    # a dedicated cross-encoder rerank server (vLLM/TEI) at rerank_base_url.
+    rerank_mode: str = "llm"
+    rerank_base_url: str = "http://localhost:11434/v1"
+    rerank_api_key: str = "ollama"
+    rerank_model: str = "qwen3:8b"
 
     # ---------------- Pipeline tuning ----------------
     rag_top_k: int = 20

@@ -52,13 +52,13 @@ async def _retrieve(query_vec: List[float], query_text: str, trace: Trace) -> Li
         table="hr_documents",
         query_embedding=query_vec,
         top_k=settings.rag_top_k,
-        select_cols="id, title, content",
+        select_cols="id, source_file, content",
     )
     for r in docs:
         candidates.append({
             "source": "hr_documents",
-            "ref": r.get("title") or f"DOC#{r.get('id')}",
-            "text": f"{r.get('title','')}\n{r.get('content','')}",
+            "ref": r.get("source_file") or f"DOC#{r.get('id')}",
+            "text": str(r.get("content", "")),
             "distance": r.get("distance", 1.0),
         })
 

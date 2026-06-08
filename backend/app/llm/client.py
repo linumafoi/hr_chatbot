@@ -41,8 +41,9 @@ class LLMClient:
     ) -> str:
         """Return assistant text. Raises on transport error (caller handles fallback)."""
         # qwen3-specific: append /no_think to the last user turn so the model
-        # skips its long reasoning trace -> much lower latency for this chat UI.
-        if no_think and messages and messages[-1]["role"] == "user":
+        # skips its long reasoning trace -> much lower latency. Only applied to
+        # qwen models (other models would treat it as literal text).
+        if no_think and "qwen" in model.lower() and messages and messages[-1]["role"] == "user":
             messages = messages[:-1] + [
                 {"role": "user", "content": messages[-1]["content"] + " /no_think"}
             ]

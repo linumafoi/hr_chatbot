@@ -2,30 +2,48 @@
 
 Implements:
   * RBAC          - permission checks per intent/agent
-  * Row-level     - injects an employee_id predicate so employees only ever
-    security (RLS)  read their own rows from hrms
+  * Row-level     - rewrites each allow-listed table reference into an inline
+    security (RLS)  view filtered by the employee's identity, so employees only
+                    ever read their own rows from hrms (admins are unrestricted)
   * Data masking  - masks PII columns for non-privileged users
   * SQL guarding  - read-only + allow-listed tables only
 
-The SQL agent and RAG agent call into these helpers; the gateway also performs
-a coarse RBAC check before routing.
+RLS identity columns differ per table:
+  - employees           -> Id
+  - EmployeeEmployment  -> EmployeeId
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..config import settings
 from ..schemas import UserContext
 
 logger = logging.getLogger("hr.security")
 
-# Columns considered sensitive PII; masked for users without 'pii.read'
+# Per-table column that holds the employee's identity (lower-cased table name).
+RLS_COLUMNS = {
+    "employees": "Id",
+    "employeeemployment": "EmployeeId",
+}
+
+# Words that can follow a table name but are NOT an alias.
+_ALIAS_STOPWORDS = (
+    "on", "where", "inner", "left", "right", "full", "cross", "join",
+    "group", "order", "having", "union", "outer", "as", "and", "or",
+)
+
+# Columns considered sensitive PII; masked for users without 'pii.read'.
+# Matched case-insensitively against the real hrms column names.
 PII_COLUMNS = {
-    "ssn", "national_id", "aadhaar", "pan", "bank_account", "account_no",
-    "ifsc", "salary", "ctc", "gross_salary", "net_salary", "dob",
-    "date_of_birth", "phone", "mobile", "email", "address",
+    "aadhaar", "pan", "uan", "esic", "pfnumber", "pon",
+    "fathername", "dateofbirth", "marriagedate", "bloodgroup",
+    "religion", "nationality", "disabilitypercentage",
+    "monthlybillingamount", "photostorage",
+    # generic fallbacks
+    "ssn", "national_id", "bank_account", "salary", "ctc", "email", "phone",
 }
 
 # Forbidden SQL keywords (read-only enforcement)
@@ -37,20 +55,6 @@ FORBIDDEN_SQL = re.compile(
 
 def check_permission(ctx: UserContext, permission: str) -> bool:
     return permission in ctx.permissions
-
-
-def rls_predicate(ctx: UserContext) -> str:
-    """Return a SQL WHERE fragment enforcing row-level security.
-
-    Employees are scoped to their own employee_id; admins are unrestricted.
-    """
-    if ctx.is_admin:
-        return ""
-    if not ctx.employee_id:
-        # Fail closed: no identity -> no rows
-        return "1 = 0"
-    # employee_id is validated numeric at login, safe to inline
-    return f"employee_id = {int(ctx.employee_id)}"
 
 
 def is_read_only_sql(sql: str) -> bool:
@@ -72,18 +76,45 @@ def uses_only_allowed_tables(sql: str) -> bool:
     return True
 
 
-def enforce_rls_in_sql(sql: str, ctx: UserContext) -> str:
-    """Inject the RLS predicate into a SELECT if not already scoped.
+def enforce_rls_in_sql(sql: str, ctx: UserContext) -> Optional[str]:
+    """Rewrite allow-listed table references into employee-scoped inline views.
 
-    This is a safety net in addition to prompting the SQL generator with the
-    scope. For employees we wrap the query so only their rows survive.
+    Returns the secured SQL, or None to fail closed (no identity).
+
+    Example (employee 1024):
+      FROM EmployeeEmployment ee
+        -> FROM (SELECT * FROM EmployeeEmployment WHERE EmployeeId = 1024) AS ee
+
+    Because each base table is replaced by a pre-filtered derived table, the
+    employee can never see another employee's rows regardless of the projection,
+    joins, or WHERE clause the generator produced. The derived table keeps the
+    original alias (or the table name itself) so column references still resolve.
     """
-    pred = rls_predicate(ctx)
-    if not pred:  # admin
+    if ctx.is_admin:
         return sql
-    # Wrap as subquery to guarantee filtering regardless of generated SQL shape.
-    sql_no_semi = sql.rstrip().rstrip(";")
-    return f"SELECT * FROM ({sql_no_semi}) AS rls_scoped WHERE {pred}"
+    if not ctx.employee_id:
+        return None  # fail closed
+    emp = int(ctx.employee_id)
+
+    tables = "|".join(re.escape(t) for t in settings.allowed_tables)
+    stop = "|".join(_ALIAS_STOPWORDS)
+    # (FROM|JOIN) <table> [optional alias that is not a stopword]
+    pattern = re.compile(
+        rf"\b(from|join)\s+\[?({tables})\]?\b"
+        rf"(?:\s+(?:as\s+)?(?!(?:{stop})\b)([A-Za-z_]\w*))?",
+        re.IGNORECASE,
+    )
+
+    def _repl(m: re.Match) -> str:
+        kw, table, alias = m.group(1), m.group(2), m.group(3)
+        col = RLS_COLUMNS.get(table.lower())
+        if not col:
+            return m.group(0)  # unknown table: leave for allow-list check to reject
+        alias = alias or table
+        return f"{kw} (SELECT * FROM {table} WHERE {col} = {emp}) AS {alias}"
+
+    secured = pattern.sub(_repl, sql)
+    return secured
 
 
 def mask_rows(rows: List[Dict[str, Any]], ctx: UserContext) -> List[Dict[str, Any]]:

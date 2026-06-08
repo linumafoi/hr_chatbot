@@ -49,31 +49,40 @@ UI ──► /api/chat ──► [preprocess → intent → rewrite → context]
 1. **PostgreSQL** (database `chatbot`) with the [pgvector](https://github.com/pgvector/pgvector) extension.
 2. **SQL Server** (database `hrms`) with the `employees` and `EmployeeEmployment` tables, and the **ODBC Driver 18 for SQL Server** installed.
 3. **Redis** (optional — falls back to in-memory).
-4. An **OpenAI-compatible inference server** (e.g. [vLLM](https://docs.vllm.ai/) or [Ollama](https://ollama.com/)) serving:
-   - chat models: `qwen3-8b`, `qwen3-14b`, `arctic-text2sql` (or `deepseek-r1-distill-32b`)
-   - embeddings: `bge-m3`
-   - reranker: `qwen3-reranker-8b` (exposing a `/rerank` endpoint)
+4. **[Ollama](https://ollama.com/)** running locally (`ollama serve`, default port 11434), with these models pulled:
+   ```bash
+   ollama pull qwen3:8b        # intent + query rewrite
+   ollama pull qwen3:14b       # chat, SQL validation, answer generation
+   ollama pull deepseek-r1:32b # NL->SQL generation (or an arctic-text2sql GGUF)
+   ollama pull bge-m3          # embeddings
+   ```
+   Reranking uses a single listwise LLM pass (`RERANK_MODE=llm`, default model `qwen3:8b`) because Ollama has no native rerank API. To use a true cross-encoder (e.g. `qwen3-reranker-8b` on vLLM/TEI), set `RERANK_MODE=http` and point `RERANK_BASE_URL` at it.
 5. **Python 3.11+**.
+
+> Adjust the model tags in `.env` to whatever you have pulled (`ollama list`).
 
 ---
 
 ## Setup
 
 ```bash
-cd hr-chatbot
+cd hr_chatbot
 cp .env.example .env          # then edit credentials/endpoints
 
 # 1) Create the PostgreSQL semantic store (tables + pgvector + seed schema rows)
 psql "postgresql://postgres:Mafoi%40123@localhost:5433/chatbot" -f sql/postgres_schema.sql
 
-# 2) Install deps + run (creates a venv automatically)
+# 2) Embed the seeded schema rows (and any docs/FAQ you add) with BGE-M3 via Ollama
+PYTHONPATH=backend python -m scripts.embed_backfill
+
+# 3) Install deps + run (creates a venv automatically)
 bash run.sh
 ```
 
 Then open **http://localhost:8000**.
 
-After you insert your HR documents/FAQs into `hr_documents` / `hr_faq`, generate
-their embeddings:
+Whenever you insert new rows into `hr_documents` / `hr_faq` / `sql_examples`,
+re-run the backfill to embed them:
 
 ```bash
 PYTHONPATH=backend python -m scripts.embed_backfill
@@ -103,13 +112,41 @@ Key knobs:
 
 ---
 
+## HRMS schema & row-level security
+
+The SQL agent is locked to two SQL Server tables (`MSSQL_ALLOWED_TABLES`):
+
+| Table | Primary key | Employee identity column (RLS) |
+|-------|-------------|-------------------------------|
+| `employees` | `Id` | `Id` |
+| `EmployeeEmployment` | `Id` | `EmployeeId` (FK → `employees.Id`) |
+
+They join on `employees.Id = EmployeeEmployment.EmployeeId`. The logged-in
+**Employee ID is `employees.Id`**.
+
+**RLS enforcement** (`pipeline/security.py`): before execution, every reference
+to an allow-listed table is rewritten into an employee-scoped inline view, e.g.
+
+```sql
+FROM EmployeeEmployment ee
+-- becomes -->
+FROM (SELECT * FROM EmployeeEmployment WHERE EmployeeId = 1024) AS ee
+```
+
+This guarantees an employee only ever sees their own rows regardless of the
+generated projection/joins/WHERE. Admins are unrestricted; a missing identity
+fails closed. Sensitive columns (PAN, UAN, ESIC, Aadhaar, FatherName,
+DateOfBirth, etc.) are masked for users without the `pii.read` permission.
+
+---
+
 ## Low latency notes
 
 - Greetings short-circuit the LLM (keyword fast-path in `intent.py`).
 - qwen3 "thinking" is disabled (`/no_think`) for interactive turns.
 - Only one agent runs per query (intent-routed); RAG uses ANN (pgvector ivfflat).
-- Reranking is capped to the top-K candidates; results stream back as a single shaped payload.
-- For best throughput, serve the qwen models on a GPU inference server (vLLM) and keep Redis local.
+- Reranking is a single listwise pass (1 LLM call) and capped to the top-K candidates.
+- Keep the smaller models (`qwen3:8b`) for intent/rewrite/rerank; reserve the 14B/32B for SQL + answers. On CPU-only Ollama, consider smaller tags (e.g. `qwen3:4b`) to cut latency.
 
 ---
 

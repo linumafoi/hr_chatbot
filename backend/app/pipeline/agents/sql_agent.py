@@ -36,9 +36,31 @@ GEN_SYSTEM = (
     "Generate a single read-only SELECT statement that answers the question.\n"
     "Rules:\n"
     "- Use ONLY the tables and columns described in the provided schema.\n"
+    "- Identifiers are case-sensitive in the schema; preserve PascalCase exactly.\n"
+    "- The two tables join on employees.Id = EmployeeEmployment.EmployeeId.\n"
     "- Never write INSERT/UPDATE/DELETE/DROP or any DDL/DML.\n"
     "- Use TOP (N) instead of LIMIT.\n"
     "- Return ONLY the SQL, no explanation, no markdown fences."
+)
+
+# Real schema for the two allow-listed hrms tables. Used as a fallback hint when
+# the PostgreSQL schema_tables store has no embedded rows yet.
+DEFAULT_SCHEMA_HINT = (
+    "TABLE employees: master record of each employee (identity + personal data).\n"
+    "  Key columns: Id (bigint, PK, the Employee ID), FirstName (nvarchar), "
+    "LastName (nvarchar), DateOfBirth (datetime), Gender (int code), "
+    "MaritalStatus (int code), BloodGroup (int code), Status (int code), "
+    "Code (nvarchar, employee code), ClientEmployeeCode (nvarchar), "
+    "PAN/UAN/ESIC/Aadhaar (nvarchar, sensitive), FatherName (nvarchar), "
+    "Religion (bigint), Nationality (int), CreatedOn (datetime).\n\n"
+    "TABLE EmployeeEmployment: employment record per employee.\n"
+    "  Key columns: Id (bigint, PK), EmployeeId (bigint, FK -> employees.Id), "
+    "StartDate (datetime, joining date), EndDate (datetime), Status (int code), "
+    "Designation (nvarchar), Department (nvarchar), Grade (nvarchar), "
+    "WorkLocation (nvarchar), ManagerId (bigint), EmploymentType (int code), "
+    "IsResigned (bit), ResignationDate (datetime), LWD (datetime, last working "
+    "day), NoticePeriodDays (decimal), DateOfConfirmation (datetime), "
+    "JobProfile (nvarchar)."
 )
 
 VALIDATE_SYSTEM = (
@@ -61,14 +83,14 @@ async def _retrieve_schema(query_vec: List[float], query_text: str, trace: Trace
 
     tables = await pg.vector_search(
         table="schema_tables", query_embedding=query_vec, top_k=settings.rag_top_k,
-        select_cols="id, table_name, description, columns",
+        select_cols="id, table_name, schema_chunk, enriched_description",
     )
     for r in tables:
         cands.append({
             "kind": "table",
             "name": r.get("table_name"),
-            "text": f"TABLE {r.get('table_name')}: {r.get('description','')}\n"
-                    f"COLUMNS: {r.get('columns','')}",
+            "text": f"TABLE {r.get('table_name')}: {r.get('enriched_description','')}\n"
+                    f"{r.get('schema_chunk','')}",
             "distance": r.get("distance", 1.0),
         })
 
@@ -92,11 +114,11 @@ async def _retrieve_schema(query_vec: List[float], query_text: str, trace: Trace
 
 
 async def _retrieve_examples(query_vec: List[float], trace: Trace) -> List[Dict[str, Any]]:
-    """9.4 - few-shot SQL examples. Table is currently empty; returns []."""
+    """9.4 - few-shot SQL examples. Table may be empty; returns [] then."""
     try:
         rows = await pg.vector_search(
             table="sql_examples", query_embedding=query_vec, top_k=3,
-            select_cols="id, question, sql",
+            select_cols="id, question, sql_query, tables_used",
         )
     except Exception:
         rows = []
@@ -123,8 +145,9 @@ def _build_schema_block(schema_docs: List[Dict[str, Any]]) -> str:
             continue
         lines.append(d["text"])
     if not lines:
-        # minimal default schema hint so generation still works
-        lines = [f"TABLE {t}: (HR table)" for t in settings.allowed_tables]
+        # Minimal real-schema hint so generation works even before schema_tables
+        # is embedded/populated in PostgreSQL.
+        lines = [DEFAULT_SCHEMA_HINT]
     return "\n\n".join(lines)
 
 
@@ -154,12 +177,14 @@ async def run_sql(rewritten_query: str, ctx: UserContext, trace: Trace) -> Dict[
     example_block = ""
     if examples:
         example_block = "\n\nExamples:\n" + "\n".join(
-            f"-- {e.get('question','')}\n{e.get('sql','')}" for e in examples
+            f"-- {e.get('question','')}\n{e.get('sql_query','')}" for e in examples
         )
 
     rls_note = (
-        "All results MUST be limited to the current employee only "
-        f"(employee_id = {ctx.employee_id})." if not ctx.is_admin
+        "All results MUST be limited to the current employee only. "
+        f"For the employees table use: Id = {ctx.employee_id}. "
+        f"For the EmployeeEmployment table use: EmployeeId = {ctx.employee_id}."
+        if not ctx.is_admin
         else "The user is an administrator and may query all employees."
     )
 
@@ -208,6 +233,11 @@ async def run_sql(rewritten_query: str, ctx: UserContext, trace: Trace) -> Dict[
 
     # 9.7 enforce RLS + execute on hrms (allow-listed tables only)
     safe_sql = security.enforce_rls_in_sql(sql, ctx)
+    if safe_sql is None:
+        # fail closed: employee with no resolvable identity
+        result["answer"] = "I couldn't verify your identity, so I can't run that query."
+        result["error"] = "rls_fail_closed"
+        return result
     if not mssql.available:
         result["answer"] = ("I generated the query but the HRMS database is "
                             "currently unreachable.")

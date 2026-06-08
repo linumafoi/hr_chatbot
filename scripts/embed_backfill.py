@@ -18,11 +18,11 @@ from app.llm.embeddings import embeddings  # noqa: E402
 
 # table -> text columns used to build the embedding input
 TARGETS = {
-    "hr_documents": ["title", "content"],
+    "hr_documents": ["source_file", "content"],
     "hr_faq": ["question", "answer"],
-    "schema_tables": ["table_name", "description", "columns"],
+    "schema_tables": ["table_name", "enriched_description", "schema_chunk"],
     "schema_domains": ["domain_name", "description"],
-    "sql_examples": ["question", "sql"],
+    "sql_examples": ["question", "sql_query", "tables_used"],
 }
 
 
