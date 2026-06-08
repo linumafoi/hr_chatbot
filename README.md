@@ -49,17 +49,38 @@ UI ──► /api/chat ──► [preprocess → intent → rewrite → context]
 1. **PostgreSQL** (database `chatbot`) with the [pgvector](https://github.com/pgvector/pgvector) extension.
 2. **SQL Server** (database `hrms`) with the `employees` and `EmployeeEmployment` tables, and the **ODBC Driver 18 for SQL Server** installed.
 3. **Redis** (optional — falls back to in-memory).
-4. **[Ollama](https://ollama.com/)** running locally (`ollama serve`, default port 11434), with these models pulled:
+4. **[Ollama](https://ollama.com/)** running locally (`ollama serve`, default port 11434). Models sized for **8GB GPU + 16GB RAM**:
    ```bash
-   ollama pull qwen3:8b        # intent + query rewrite
-   ollama pull qwen3:14b       # chat, SQL validation, answer generation
-   ollama pull deepseek-r1:32b # NL->SQL generation (or an arctic-text2sql GGUF)
+   ollama pull qwen3:8b        # intent, rewrite, rerank, chat, validation, answer
+   ollama pull deepseek-r1:7b  # NL->SQL generation (fits 8GB; 32b/14b do not)
    ollama pull bge-m3          # embeddings
    ```
-   Reranking uses a single listwise LLM pass (`RERANK_MODE=llm`, default model `qwen3:8b`) because Ollama has no native rerank API. To use a true cross-encoder (e.g. `qwen3-reranker-8b` on vLLM/TEI), set `RERANK_MODE=http` and point `RERANK_BASE_URL` at it.
+   Reranking uses a single listwise LLM pass (`RERANK_MODE=llm`, default `qwen3:8b`) because Ollama has no native rerank API. For a true cross-encoder (`qwen3-reranker-8b` on vLLM/TEI), set `RERANK_MODE=http` and point `RERANK_BASE_URL` at it.
 5. **Python 3.11+**.
 
 > Adjust the model tags in `.env` to whatever you have pulled (`ollama list`).
+
+### Hardware sizing (8GB GPU / 16GB RAM)
+
+The larger tags from the original spec do **not** fit this machine:
+
+| Model | ~VRAM (Q4) | Fits 8GB GPU? |
+|-------|-----------|----------------|
+| `deepseek-r1:32b` | ~20 GB | No (won't fit RAM either) |
+| `qwen3:14b` | ~9 GB | Barely / spills to CPU (slow) |
+| **`qwen3:8b`** | ~5.2 GB | **Yes** |
+| **`deepseek-r1:7b`** | ~4.7 GB | **Yes** |
+| `bge-m3` | ~1.2 GB | Yes |
+
+Tips to keep latency low on this hardware:
+- Using **one shared model** (`qwen3:8b`) for all qwen roles means Ollama doesn't reload between pipeline steps — the single biggest latency factor.
+- Let Ollama keep models warm and cap how many load at once:
+  ```bash
+  export OLLAMA_KEEP_ALIVE=30m
+  export OLLAMA_MAX_LOADED_MODELS=2   # qwen3:8b + bge-m3 stay resident
+  ```
+- For the **fastest** setup, also set `SQL_GEN_MODEL=qwen3:8b` (skips loading deepseek entirely — only 2 models ever touch the GPU). qwen3:8b handles the simple two-table NL→SQL well.
+- If you want even snappier intent/rewrite, set those to `qwen3:4b` (~2.6 GB).
 
 ---
 

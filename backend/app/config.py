@@ -58,13 +58,15 @@ class Settings(BaseSettings):
     # Ollama exposes the OpenAI API at http://localhost:11434/v1
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "ollama"
-    # Ollama model tags (pull these with `ollama pull <name>`)
+    # Ollama model tags (pull these with `ollama pull <name>`).
+    # Sized for 8GB GPU / 16GB RAM: one shared qwen3:8b for all qwen roles
+    # (stays resident -> low latency) + a small deepseek distill for NL->SQL.
     intent_model: str = "qwen3:8b"
     rewrite_model: str = "qwen3:8b"
-    sql_validation_model: str = "qwen3:14b"
-    sql_gen_model: str = "deepseek-r1:32b"   # or an arctic-text2sql GGUF tag
-    chat_model: str = "qwen3:14b"
-    answer_model: str = "qwen3:14b"
+    sql_validation_model: str = "qwen3:8b"
+    sql_gen_model: str = "deepseek-r1:7b"    # 32b/14b won't fit 8GB VRAM
+    chat_model: str = "qwen3:8b"
+    answer_model: str = "qwen3:8b"
 
     embed_base_url: str = "http://localhost:11434/v1"
     embed_api_key: str = "ollama"
