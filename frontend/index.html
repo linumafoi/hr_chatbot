@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HR Assistant - Sign in</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="brand">
+        <div class="logo">HR</div>
+        <h1>HR AI Assistant</h1>
+      </div>
+      <p class="subtitle">Sign in to chat with your HR assistant</p>
+
+      <div class="role-tabs">
+        <button id="tab-employee" class="active" type="button">Employee</button>
+        <button id="tab-admin" type="button">Admin</button>
+      </div>
+
+      <form id="login-form">
+        <!-- Employee fields -->
+        <div class="field" id="field-empid">
+          <label for="employee_id">Employee ID</label>
+          <input type="text" id="employee_id" placeholder="e.g. 1024" autocomplete="off" />
+        </div>
+
+        <!-- Admin fields -->
+        <div class="field" id="field-username" style="display:none">
+          <label for="username">Admin Username</label>
+          <input type="text" id="username" placeholder="admin" autocomplete="username" />
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+
+        <button type="submit" class="btn-primary" id="login-btn">Sign in</button>
+        <div class="error-msg" id="login-error"></div>
+      </form>
+
+      <p class="hint">
+        Employees sign in with their <b>Employee ID</b> &mdash; the assistant only
+        returns data scoped to that ID (row-level security).
+      </p>
+    </div>
+  </div>
+
+  <script>
+    let role = "employee";
+    const tabEmp = document.getElementById("tab-employee");
+    const tabAdmin = document.getElementById("tab-admin");
+    const fieldEmpId = document.getElementById("field-empid");
+    const fieldUsername = document.getElementById("field-username");
+    const errEl = document.getElementById("login-error");
+
+    function setRole(r) {
+      role = r;
+      tabEmp.classList.toggle("active", r === "employee");
+      tabAdmin.classList.toggle("active", r === "admin");
+      fieldEmpId.style.display = r === "employee" ? "block" : "none";
+      fieldUsername.style.display = r === "admin" ? "block" : "none";
+      errEl.textContent = "";
+    }
+    tabEmp.addEventListener("click", () => setRole("employee"));
+    tabAdmin.addEventListener("click", () => setRole("admin"));
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errEl.textContent = "";
+      const btn = document.getElementById("login-btn");
+      const password = document.getElementById("password").value;
+
+      const payload = { role, password };
+      if (role === "employee") {
+        payload.employee_id = document.getElementById("employee_id").value.trim();
+        if (!payload.employee_id) { errEl.textContent = "Employee ID is required."; return; }
+      } else {
+        payload.username = document.getElementById("username").value.trim() || "admin";
+      }
+
+      btn.disabled = true; btn.textContent = "Signing in...";
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Login failed");
+        localStorage.setItem("hr_token", data.access_token);
+        localStorage.setItem("hr_user", JSON.stringify(data.user));
+        window.location.href = "/chat.html";
+      } catch (err) {
+        errEl.textContent = err.message;
+      } finally {
+        btn.disabled = false; btn.textContent = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>

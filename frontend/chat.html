@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HR Assistant</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="left">
+        <div class="logo">HR</div>
+        <h2>HR AI Assistant</h2>
+      </div>
+      <div class="user-chip">
+        <span id="user-label"></span>
+        <span class="badge" id="role-badge"></span>
+        <button class="btn-logout" id="logout-btn">Logout</button>
+      </div>
+    </header>
+
+    <main class="chat-area" id="chat-area">
+      <div class="empty-state" id="empty-state">
+        <h3>How can I help you today?</h3>
+        <p>Ask about HR policies, your leave balance, payroll, or company FAQs.</p>
+        <div class="suggestions" id="suggestions">
+          <button>What is the leave policy?</button>
+          <button>Show my employment details</button>
+          <button>How many casual leaves do I have?</button>
+          <button>What are the working hours?</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+    </main>
+
+    <div class="composer">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" placeholder="Ask the HR assistant..."></textarea>
+        <button class="btn-send" id="send-btn" title="Send">&#10148;</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# --- Web / Gateway ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-multipart==0.0.17
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# --- HTTP clients ---
+httpx==0.28.1
+
+# --- Databases ---
+asyncpg==0.30.0            # PostgreSQL (chatbot - semantic/RAG store)
+pyodbc==5.2.0             # SQL Server (hrms - read-only execution)
+redis==5.2.1             # Conversation memory / session context
+
+# --- Orchestration ---
+langgraph==0.2.53
+langchain-core==0.3.21
+
+# --- Utilities ---
+python-dotenv==1.0.1
+orjson==3.10.12
+tenacity==9.0.0
+numpy==2.1.3
