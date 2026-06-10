@@ -49,8 +49,11 @@ class RerankClient:
         """Return the top_k documents reordered by relevance (adds 'rerank_score')."""
         if not documents:
             return []
+        mode = settings.rerank_mode.lower()
+        if mode == "off":
+            return self._identity(documents, top_k)
         try:
-            if settings.rerank_mode.lower() == "http":
+            if mode == "http":
                 return await self._rerank_http(query, documents, text_key, top_k)
             return await self._rerank_llm(query, documents, text_key, top_k)
         except Exception as exc:

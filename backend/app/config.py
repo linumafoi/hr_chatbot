@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     intent_model: str = "qwen3:8b"
     rewrite_model: str = "qwen3:8b"
     sql_validation_model: str = "qwen3:8b"
-    sql_gen_model: str = "deepseek-r1:7b"    # 32b/14b won't fit 8GB VRAM
+    sql_gen_model: str = "qwen3:8b"    # fast + reliable on 8GB; deepseek-r1 is slow
     chat_model: str = "qwen3:8b"
     answer_model: str = "qwen3:8b"
 
@@ -72,10 +72,11 @@ class Settings(BaseSettings):
     embed_api_key: str = "ollama"
     embed_model: str = "bge-m3"
 
-    # Reranking. Ollama has no native rerank API, so the default mode is "llm"
-    # (a single listwise pass with rerank_model). Set rerank_mode="http" to use
-    # a dedicated cross-encoder rerank server (vLLM/TEI) at rerank_base_url.
-    rerank_mode: str = "llm"
+    # Reranking. Ollama has no native rerank API. "off" skips reranking and
+    # keeps vector-similarity order (fastest - one less LLM call per query, best
+    # for 8GB hardware). "llm" = single listwise pass with rerank_model.
+    # "http" = dedicated cross-encoder server (vLLM/TEI) at rerank_base_url.
+    rerank_mode: str = "off"
     rerank_base_url: str = "http://localhost:11434/v1"
     rerank_api_key: str = "ollama"
     rerank_model: str = "qwen3:8b"
@@ -84,7 +85,7 @@ class Settings(BaseSettings):
     rag_top_k: int = 20
     rag_rerank_k: int = 5
     sql_max_rows: int = 100
-    request_timeout_seconds: int = 60
+    request_timeout_seconds: int = 180
     graceful_fallback: bool = True
 
     # ---------------- Derived helpers ----------------

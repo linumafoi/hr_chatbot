@@ -128,14 +128,14 @@ async def chat(req: ChatRequest, user: UserInfo = Depends(get_current_user)) -> 
     await memory.add_turn(req.session_id, "user", req.message)
     await memory.add_turn(req.session_id, "assistant", result.get("answer", ""))
     await memory.set_context(req.session_id, {
-        "last_intent": result.get("intent", state.get("intent")),
+        "last_intent": result.get("intent", "unknown"),
         "department": ctx.department,
     })
 
     # Step 13 - audit record
     trace.finalize(
         question=req.message,
-        intent=state.get("intent", "unknown"),
+        intent=result.get("intent", "unknown"),
         agent=result.get("agent", "none"),
         answer_preview=result.get("answer", ""),
         confidence=result.get("confidence", 0.0),
@@ -144,7 +144,7 @@ async def chat(req: ChatRequest, user: UserInfo = Depends(get_current_user)) -> 
     # Step 15 - final shaped response
     return ChatResponse(
         answer=result.get("answer", ""),
-        intent=state.get("intent", "unknown"),
+        intent=result.get("intent", "unknown"),
         agent=result.get("agent", "none"),
         confidence=result.get("confidence", 0.0),
         sources=result.get("sources", []),

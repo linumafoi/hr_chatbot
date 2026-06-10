@@ -21,10 +21,16 @@ from ..observability import Trace
 logger = logging.getLogger("hr.rag")
 
 ANSWER_SYSTEM = (
-    "You are an HR assistant. Answer the user's question using ONLY the provided "
-    "context passages. Be concise and accurate. If the answer is not in the "
-    "context, say you don't have that information and suggest contacting HR. "
-    "Do not invent policy numbers or dates."
+    "You are a helpful HR assistant. Using ONLY the provided context passages, "
+    "write a clear, well-structured answer to the employee's question in plain, "
+    "easy-to-understand language.\n"
+    "Guidelines:\n"
+    "- Directly answer the question first, then add relevant details.\n"
+    "- Use short paragraphs or bullet points for eligibility, limits, steps, etc.\n"
+    "- Summarise and paraphrase the policy; do not paste raw fragments.\n"
+    "- Preserve specific figures, levels and limits exactly as written.\n"
+    "- If the answer is not in the context, say you don't have that information "
+    "and suggest contacting HR. Do not invent policy numbers, dates or amounts."
 )
 
 
@@ -112,8 +118,9 @@ async def run_rag(rewritten_query: str, trace: Trace) -> Dict[str, Any]:
         )
 
     if not answer:
-        # extractive fallback: surface the best passage
-        answer = "Based on our records:\n\n" + reranked[0]["text"][:600]
+        # Extractive fallback (answer model unavailable): surface the most
+        # relevant passages, trimmed to whole sentences so it reads cleanly.
+        answer = _extractive_answer(reranked)
         result["confidence"] = 0.4
     else:
         top_score = reranked[0].get("rerank_score", 0.6)
@@ -122,3 +129,22 @@ async def run_rag(rewritten_query: str, trace: Trace) -> Dict[str, Any]:
     result["answer"] = answer
     result["sources"] = sources
     return result
+
+
+def _extractive_answer(reranked: List[Dict[str, Any]]) -> str:
+    """Readable fallback when the LLM can't generate: top passages, trimmed."""
+    parts: List[str] = []
+    for d in reranked[:2]:
+        text = " ".join(str(d.get("text", "")).split())  # collapse whitespace
+        snippet = text[:500]
+        # trim to the last sentence boundary so we don't cut mid-word
+        cut = max(snippet.rfind(". "), snippet.rfind("? "), snippet.rfind("! "))
+        if cut > 120:
+            snippet = snippet[: cut + 1]
+        parts.append(snippet.strip())
+    body = "\n\n".join(parts)
+    return (
+        "Here's the most relevant information I found in our HR documents:\n\n"
+        f"{body}\n\n(For full details please refer to the source documents above "
+        "or contact HR.)"
+    )
