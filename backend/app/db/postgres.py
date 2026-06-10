@@ -35,8 +35,18 @@ class PostgresClient:
             logger.warning("asyncpg not installed - Postgres features disabled")
             return
         try:
+            # Pass fields discretely (NOT a DSN URL) so special characters in the
+            # password (e.g. '@' in "Mafoi@123") are never URL-parsed. asyncpg
+            # splits a DSN on the first '@', which would misread the host.
             self._pool = await asyncpg.create_pool(
-                dsn=settings.pg_dsn, min_size=1, max_size=8, command_timeout=30
+                host=settings.pg_host,
+                port=settings.pg_port,
+                user=settings.pg_user,
+                password=settings.pg_password,
+                database=settings.pg_db,
+                min_size=1,
+                max_size=8,
+                command_timeout=30,
             )
             self.available = True
             logger.info("Connected to PostgreSQL '%s'", settings.pg_db)
