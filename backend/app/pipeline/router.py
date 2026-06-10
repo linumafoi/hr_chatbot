@@ -123,19 +123,19 @@ def _route(state: PipelineState) -> str:
 def _build_graph():
     graph = StateGraph(PipelineState)
     graph.add_node("preprocess", _node_preprocess)
-    graph.add_node("intent", _node_intent)
+    graph.add_node("classify_intent", _node_intent)
     graph.add_node("rewrite", _node_rewrite)
-    graph.add_node("context", _node_context)
+    graph.add_node("build_context", _node_context)
     graph.add_node("rag", _node_rag)
     graph.add_node("sql", _node_sql)
     graph.add_node("chat", _node_chat)
     graph.add_node("aggregate", _node_aggregate)
 
     graph.add_edge(START, "preprocess")
-    graph.add_edge("preprocess", "intent")
-    graph.add_edge("intent", "rewrite")
-    graph.add_edge("rewrite", "context")
-    graph.add_conditional_edges("context", _route,
+    graph.add_edge("preprocess", "classify_intent")
+    graph.add_edge("classify_intent", "rewrite")
+    graph.add_edge("rewrite", "build_context")
+    graph.add_conditional_edges("build_context", _route,
                                 {"rag": "rag", "sql": "sql", "chat": "chat"})
     graph.add_edge("rag", "aggregate")
     graph.add_edge("sql", "aggregate")
