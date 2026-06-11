@@ -52,8 +52,10 @@ async def _node_intent(state: PipelineState) -> PipelineState:
 
 async def _node_rewrite(state: PipelineState) -> PipelineState:
     trace: Trace = state["context"]["_trace"]
-    # greetings don't need a retrieval rewrite
-    if state["intent"] == "general_chat":
+    # Skip the rewrite LLM call when there's nothing to resolve: greetings, or a
+    # first-turn question with no prior history (rewrite mainly resolves
+    # pronouns/follow-ups). Saves a full LLM round-trip on modest hardware.
+    if state["intent"] == "general_chat" or not state.get("history"):
         state["rewritten_query"] = state["clean_message"]
         return state
     with trace.span("rewrite"):

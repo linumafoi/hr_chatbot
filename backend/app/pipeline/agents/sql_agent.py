@@ -189,6 +189,7 @@ async def run_sql(rewritten_query: str, ctx: UserContext, trace: Trace) -> Dict[
     )
 
     # 9.5 generate SQL
+    trace.event("sql.generating", model=settings.sql_gen_model)
     with trace.span("sql.generate"):
         gen_user = (
             f"Schema (only these tables may be used):\n{schema_block}\n"
@@ -211,7 +212,10 @@ async def run_sql(rewritten_query: str, ctx: UserContext, trace: Trace) -> Dict[
     sql = _clean_sql(raw_sql)
     trace.event("sql.generated", sql=sql)
 
-    # 9.6 validation (LLM + static guards)
+    # 9.6 validation: static guards (always) + optional LLM validation.
+    # Static guards below already enforce read-only, allow-listed tables and
+    # (via enforce_rls_in_sql) row-level security, so the extra LLM validation
+    # call is OFF by default to save ~1 slow round-trip on modest hardware.
     if not security.is_read_only_sql(sql):
         result["answer"] = "Only read-only lookups are permitted."
         result["error"] = "not_read_only"
@@ -222,14 +226,15 @@ async def run_sql(rewritten_query: str, ctx: UserContext, trace: Trace) -> Dict[
         result["error"] = "table_not_allowed"
         return result
 
-    with trace.span("sql.validate"):
-        verdict = await llm.chat_safe(
-            settings.sql_validation_model,
-            [{"role": "system", "content": VALIDATE_SYSTEM},
-             {"role": "user", "content": f"Schema:\n{schema_block}\n\nSQL:\n{sql}"}],
-            temperature=0.0, max_tokens=300, fallback="",
-        )
-    sql = _maybe_apply_fix(sql, verdict, trace)
+    if settings.sql_llm_validation:
+        with trace.span("sql.validate"):
+            verdict = await llm.chat_safe(
+                settings.sql_validation_model,
+                [{"role": "system", "content": VALIDATE_SYSTEM},
+                 {"role": "user", "content": f"Schema:\n{schema_block}\n\nSQL:\n{sql}"}],
+                temperature=0.0, max_tokens=300, fallback="",
+            )
+        sql = _maybe_apply_fix(sql, verdict, trace)
 
     # 9.7 enforce RLS + execute on hrms (allow-listed tables only)
     safe_sql = security.enforce_rls_in_sql(sql, ctx)

@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     rag_top_k: int = 20
     rag_rerank_k: int = 5
     sql_max_rows: int = 100
+    # Extra LLM validation pass for generated SQL. Off by default: static guards
+    # (read-only + allow-list) and RLS already secure execution. Turn on for an
+    # additional safety review at the cost of one more LLM call per query.
+    sql_llm_validation: bool = False
     request_timeout_seconds: int = 180
     graceful_fallback: bool = True
 
