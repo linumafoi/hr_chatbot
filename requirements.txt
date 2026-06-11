@@ -2,7 +2,7 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 pydantic==2.10.3
-pydantic-settings==2.6.1
+pydantic-settings>=2.10.1,<3.0.0
 python-multipart==0.0.17
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
@@ -16,8 +16,10 @@ pyodbc==5.2.0             # SQL Server (hrms - read-only execution)
 redis==5.2.1             # Conversation memory / session context
 
 # --- Orchestration ---
-langgraph==0.2.53
-langchain-core==0.3.21
+# Modern LangGraph 1.x line. We only use the stable langgraph.graph API
+# (StateGraph/START/END), and langchain-core is pulled in transitively, so we
+# don't pin it directly (avoids clashes with the langchain 1.x ecosystem).
+langgraph>=1.1.5,<2.0.0
 
 # --- Utilities ---
 python-dotenv==1.0.1
